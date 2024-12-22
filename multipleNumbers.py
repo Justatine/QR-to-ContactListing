@@ -73,7 +73,7 @@ def fetch_data():
     except sqlite3.Error as e:
         messagebox.showerror("Database Error", f"Error fetching data: {str(e)}")
 
-def open_add_row_form():
+def add_contact():
     def add_mobile_number():
         number = entry_mobile.get()
         if number:
@@ -194,22 +194,22 @@ def edit_contact():
 
     user_data = table.item(selected_item[0], "values")
 
-    def submit_form():
+    def update_contact():
         firstname = entry_firstname.get()
         lastname = entry_lastname.get()
         email = entry_email.get()
-        mobile = entry_mobile.get()
         company = entry_company.get()
         address = entry_address.get()
         company_number = entry_company_number.get()
         linkedin = entry_linkedin.get()
+        mobile_numbers = list(mobile_list.get(0, "end"))
 
-        if firstname and lastname and email and mobile and company and address and company_number and linkedin:
+        if firstname and lastname and email and mobile_numbers and company and address and company_number and linkedin:
             try:
                 conn = sqlite3.connect('Database/QRCDB.db')
                 cursor = conn.cursor()
 
-                # Update the tbContacts table with the new values
+                # Update the tbContacts table
                 cursor.execute(''' 
                     UPDATE tbContacts SET 
                     Firstname = ?, 
@@ -222,33 +222,43 @@ def edit_contact():
                     WHERE Id = ?
                 ''', (firstname, lastname, email, company, address, company_number, linkedin, user_data[0]))
 
-                # Update mobile numbers if needed (you can extend this part based on your requirements)
-                cursor.execute('''DELETE FROM tbContactNos WHERE Id = ?''', (user_data[0],))
-                for mobile_number in mobile.split(','):
-                    cursor.execute('''
-                        INSERT INTO tbContactNos (Id, MobileNumber)
-                        VALUES (?, ?)
-                    ''', (user_data[0], mobile_number.strip()))
+                cursor.execute('DELETE FROM tbContactNos WHERE Id = ?', (user_data[0],))
+                for mobile in mobile_numbers:
+                    cursor.execute('''INSERT INTO tbContactNos (Id, MobileNumber) VALUES (?, ?)''', 
+                                   (user_data[0], int(mobile) ))
 
                 conn.commit()
                 conn.close()
 
-                # Update the table view with the new data
-                table.item(selected_item[0], values=(
-                    user_data[0], firstname, lastname, email, mobile, company, address, company_number, linkedin
-                ))
+                # Refresh the table
+                fetch_data()
 
                 form.destroy()
                 show_message("Update Contact", "Contact updated successfully.")
-                fetch_data()
             except sqlite3.Error as e:
-                messagebox.showerror("Database Error", f"Error updating data: {str(e)}")
+                messagebox.showerror("Database Error", f"Error updating contact: {str(e)}")
         else:
-            messagebox.showwarning("Warning", "All fields are required!")
+            messagebox.showwarning("Validation Error", "All fields are required!")
 
+    def add_mobile_number():
+        number = entry_mobile.get()
+        if number:
+            mobile_list.insert("end", number)
+            entry_mobile.delete(0, "end")
+        else:
+            messagebox.showwarning("Input Error", "Mobile number cannot be empty!")
+
+    def remove_mobile_number():
+        selected = mobile_list.curselection()
+        if selected:
+            mobile_list.delete(selected)
+        else:
+            messagebox.showwarning("Selection Error", "Please select a number to remove!")
+
+    # Create the edit form
     form = Toplevel(root)
     form.title("Edit Contact")
-    form.geometry("600x450")
+    form.geometry("600x600")
     form.resizable(False, False)
 
     # Center the form window
@@ -256,7 +266,7 @@ def edit_contact():
     root_y = root.winfo_y()
     root_width = root.winfo_width()
     root_height = root.winfo_height()
-
+    
     form_width = 600
     form_height = 450
 
@@ -265,58 +275,61 @@ def edit_contact():
     y = root_y + (root_height // 2) - (form_height // 2)
 
     form.geometry(f"{form_width}x{form_height}+{x}+{y}")
-
-    for i in range(3):
-        form.columnconfigure(i, weight=1)
-
-    # Personal Details
-    ttk.Label(form, text="Personal Details", font=("Arial", 12, "bold")).grid(row=0, column=0, pady=10)
-    ttk.Label(form, text="Firstname:").grid(row=1, column=0, sticky="w", padx=10, pady=5)
+    
+    ttk.Label(form, text="Firstname:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
     entry_firstname = ttk.Entry(form)
-    entry_firstname.grid(row=2, column=0, padx=10, pady=5)
+    entry_firstname.grid(row=0, column=1, padx=10, pady=5)
     entry_firstname.insert(0, user_data[1])
 
-    ttk.Label(form, text="Lastname:").grid(row=3, column=0, sticky="w", padx=10, pady=5)
+    ttk.Label(form, text="Lastname:").grid(row=1, column=0, padx=10, pady=5, sticky="w")
     entry_lastname = ttk.Entry(form)
-    entry_lastname.grid(row=4, column=0, padx=10, pady=5)
+    entry_lastname.grid(row=1, column=1, padx=10, pady=5)
     entry_lastname.insert(0, user_data[2])
 
-    # Contact Details
-    ttk.Label(form, text="Contact Details", font=("Arial", 12, "bold")).grid(row=0, column=1, pady=10)
-    ttk.Label(form, text="Email Address:").grid(row=1, column=1, sticky="w", padx=10, pady=5)
+    ttk.Label(form, text="Email Address:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
     entry_email = ttk.Entry(form)
     entry_email.grid(row=2, column=1, padx=10, pady=5)
     entry_email.insert(0, user_data[3])
 
-    ttk.Label(form, text="Mobile Number:").grid(row=3, column=1, sticky="w", padx=10, pady=5)
+    ttk.Label(form, text="Mobile Numbers:").grid(row=3, column=0, padx=10, pady=5, sticky="w")
     entry_mobile = ttk.Entry(form)
-    entry_mobile.grid(row=4, column=1, padx=10, pady=5)
-    entry_mobile.insert(0, user_data[4])
+    entry_mobile.grid(row=3, column=1, padx=10, pady=5)
+    ttk.Button(form, text="Add Number", command=add_mobile_number).grid(row=3, column=2, padx=10, pady=5)
+    mobile_list = Listbox(form, height=5)
+    mobile_list.grid(row=4, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+    ttk.Button(form, text="Remove Selected", command=remove_mobile_number).grid(row=4, column=2, padx=10, pady=5)
 
-    # Company Details
-    ttk.Label(form, text="Company Details", font=("Arial", 12, "bold")).grid(row=0, column=2, pady=10)
-    ttk.Label(form, text="Company Name:").grid(row=1, column=2, sticky="w", padx=10, pady=5)
+    # Pre-populate mobile numbers
+    conn = sqlite3.connect('Database/QRCDB.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT MobileNumber FROM tbContactNos WHERE Id = ?', (user_data[0],))
+    mobile_numbers = cursor.fetchall()
+    conn.close()
+
+    for mobile in mobile_numbers:
+        mobile_list.insert("end", mobile[0])
+
+    ttk.Label(form, text="Company Name:").grid(row=5, column=0, padx=10, pady=5, sticky="w")
     entry_company = ttk.Entry(form)
-    entry_company.grid(row=2, column=2, padx=10, pady=5)
-    entry_company.insert(0, user_data[5])
+    entry_company.grid(row=5, column=1, padx=10, pady=5)
+    entry_company.insert(0, user_data[4])
 
-    ttk.Label(form, text="Company Address:").grid(row=3, column=2, sticky="w", padx=10, pady=5)
+    ttk.Label(form, text="Company Address:").grid(row=6, column=0, padx=10, pady=5, sticky="w")
     entry_address = ttk.Entry(form)
-    entry_address.grid(row=4, column=2, padx=10, pady=5)
-    entry_address.insert(0, user_data[6])
+    entry_address.grid(row=6, column=1, padx=10, pady=5)
+    entry_address.insert(0, user_data[5])
 
-    ttk.Label(form, text="Company Number:").grid(row=5, column=2, sticky="w", padx=10, pady=5)
+    ttk.Label(form, text="Company Number:").grid(row=7, column=0, padx=10, pady=5, sticky="w")
     entry_company_number = ttk.Entry(form)
-    entry_company_number.grid(row=6, column=2, padx=10, pady=5)
-    entry_company_number.insert(0, user_data[7])
+    entry_company_number.grid(row=7, column=1, padx=10, pady=5)
+    entry_company_number.insert(0, user_data[6])
 
-    ttk.Label(form, text="LinkedIn Account:").grid(row=7, column=2, sticky="w", padx=10, pady=5)
+    ttk.Label(form, text="LinkedIn Account:").grid(row=8, column=0, padx=10, pady=5, sticky="w")
     entry_linkedin = ttk.Entry(form)
-    entry_linkedin.grid(row=8, column=2, padx=10, pady=5)
-    entry_linkedin.insert(0, user_data[8])
+    entry_linkedin.grid(row=8, column=1, padx=10, pady=5)
+    entry_linkedin.insert(0, user_data[7])
 
-    # Submit button
-    ttk.Button(form, text="Submit", command=submit_form).grid(row=9, column=1, pady=20)
+    ttk.Button(form, text="Update", command=update_contact).grid(row=9, column=0, columnspan=3, pady=20)
 
 def delete_row():
     selected_item = table.selection()
@@ -440,7 +453,7 @@ table.pack()
 button_frame = ttk.Frame(root)
 button_frame.pack(pady=10)
 
-add_button = ttk.Button(button_frame, text="Add Contact",command=open_add_row_form)
+add_button = ttk.Button(button_frame, text="Add Contact",command=add_contact)
 add_button.grid(row=0, column=0, padx=10)
 
 edit_button = ttk.Button(button_frame, text="Edit Contact", command=edit_contact)
