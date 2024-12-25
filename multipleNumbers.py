@@ -6,6 +6,9 @@ import sqlite3
 import qrcode
 from PIL import Image, ImageTk
 from tkinter import Listbox
+import segno
+from segno import helpers
+from io import BytesIO
 
 # Setup database function
 def setup_database():
@@ -275,7 +278,7 @@ def edit_contact():
     y = root_y + (root_height // 2) - (form_height // 2)
 
     form.geometry(f"{form_width}x{form_height}+{x}+{y}")
-    
+
     ttk.Label(form, text="Firstname:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
     entry_firstname = ttk.Entry(form)
     entry_firstname.grid(row=0, column=1, padx=10, pady=5)
@@ -357,29 +360,29 @@ def delete_row():
             fetch_data()
 
 def generate_qr_code_vcard(firstname, lastname, email, mobile, company, address, number, linkedIn):
-    vcard_data = (
-        "BEGIN:VCARD\n"
-        "VERSION:3.0\n"
-        f"N:{lastname};{firstname}\n"
-        f"FN:{firstname} {lastname}\n"
-        f"EMAIL:{email}\n"
-        f"TEL:{''.join(['0', str(mobile)])}\n"
-        f"ORG:{company}\n"
-        f"ADR:;;{address}\n"
-        # f"ADR:;;{number}\n"
-        # f"ADR:;;{linkedIn}\n"
-        "END:VCARD"
+    print(firstname, lastname, email, mobile, company, address, number, linkedIn)
+    
+    # Remove spaces in the first name to avoid splitting into middle name
+    sanitized_firstname = firstname.replace(" ", "")
+    
+    # Handle multiple mobile numbers
+    mobile_numbers = [m.strip() for m in mobile.split(", ")] if mobile else []
+
+    # Create the vCard using segno.helpers
+    vcard_data = helpers.make_vcard(
+        name='Doe;John', 
+        displayname='John Doe',
+        email=('me@example.org', 'another@example.org'),
+        url=['http://www.example.org', 'https://example.org/~joe']
     )
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=5,
-        border=4,
-    )
-    qr.add_data(vcard_data)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    return img
+
+    # Save the QR code image to a file
+    qr_image_path = "vcard_qrcode.png"  # Temporary file for visualization
+    vcard_data.save('my-vcard.svg', scale=4)
+
+    # Load the QR code image for use in the GUI
+    qr_img = Image.open(qr_image_path)
+    return qr_img
 
 def open_qr():
     selected_item = table.selection()
@@ -389,24 +392,66 @@ def open_qr():
         return
 
     user_data = table.item(selected_item[0], "values")
-    contact_id = user_data[0]  
+    contact_id = user_data[0]
 
     try:
         conn = sqlite3.connect('Database/QRCDB.db')
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM tbContacts WHERE Id=?", (contact_id,))
-        contact = cursor.fetchone() 
 
+        # Query to join mobile numbers from tbContactNos
+        cursor.execute("""
+            SELECT 
+                a.Id, a.FirstName, a.LastName, a.EmailAddress, a.CompanyName, a.CompanyAddress, a.CompanyNumber, a.LinkedInAcc,
+                GROUP_CONCAT(b.MobileNumber, ', ') AS MobileNumbers
+            FROM 
+                tbContacts AS a
+            LEFT JOIN 
+                tbContactNos AS b 
+            ON 
+                a.Id = b.Id
+            WHERE 
+                a.Id = ?
+            GROUP BY 
+                a.Id
+        """, (contact_id,))
+        
+        contact = cursor.fetchone()
+
+        print(contact[1], contact[2], contact[3], contact[4], contact[5], contact[6], contact[7], contact[8])
         if contact:
-            qr_img = generate_qr_code_vcard(
-                contact[1], contact[2], contact[3], contact[4], contact[5], contact[6], contact[7], contact[8] 
+            firstname = contact[1].replace(" ","")  
+
+            qr_data = {
+                "name": f"{contact[2]};{firstname}",
+                "displayname": f"{firstname} {contact[2]}",
+                "email": contact[3],
+                "phone": [f"0{phone.strip()}" if not phone.startswith("0") else phone.strip() for phone in contact[8].split(", ")],
+                "workplace": f"{contact[4]}, {contact[5]}, {contact[6]}",
+                "website": contact[7]
+            }
+
+            qrcode = segno.helpers.make_vcard(
+                name=qr_data["name"],
+                displayname=qr_data["displayname"],
+                email=qr_data["email"],
+                phone=qr_data["phone"],
+                org=qr_data["workplace"],
+                url=qr_data["website"]
             )
+            
+            # Convert QR code to PIL Image in-memory
+            buffer = BytesIO()
+            qrcode.save(buffer, kind="png", scale=4)
+            buffer.seek(0)
+            qr_img = Image.open(buffer)
+
+            # Create a modal to display the QR code
             modal = Toplevel(root)
-            modal.title(f"QR Code for user {contact[1]} {contact[2]}")
+            modal.title(f"QR Code for {contact[1]} {contact[2]}")
             modal.geometry("350x350")
 
             # Center the modal window
-            modal.update_idletasks() 
+            modal.update_idletasks()
             screen_width = modal.winfo_screenwidth()
             screen_height = modal.winfo_screenheight()
             window_width = 350
@@ -415,6 +460,8 @@ def open_qr():
             position_y = (screen_height // 2) - (window_height // 2)
             modal.geometry(f"{window_width}x{window_height}+{position_x}+{position_y}")
 
+            # Display the QR code in the modal
+            qr_img = qr_img.resize((300, 300), Image.Resampling.LANCZOS)
             qr_image = ImageTk.PhotoImage(qr_img)
             label = ttk.Label(modal, image=qr_image)
             label.image = qr_image
@@ -422,7 +469,7 @@ def open_qr():
 
             ttk.Button(modal, text="Close", command=modal.destroy).pack(pady=10)
         else:
-            print("No contact found with the given ID.")
+            messagebox.showerror("Error", "No contact found with the given ID.")
 
         conn.close()
 
