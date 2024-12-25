@@ -359,31 +359,6 @@ def delete_row():
 
             fetch_data()
 
-def generate_qr_code_vcard(firstname, lastname, email, mobile, company, address, number, linkedIn):
-    print(firstname, lastname, email, mobile, company, address, number, linkedIn)
-    
-    # Remove spaces in the first name to avoid splitting into middle name
-    sanitized_firstname = firstname.replace(" ", "")
-    
-    # Handle multiple mobile numbers
-    mobile_numbers = [m.strip() for m in mobile.split(", ")] if mobile else []
-
-    # Create the vCard using segno.helpers
-    vcard_data = helpers.make_vcard(
-        name='Doe;John', 
-        displayname='John Doe',
-        email=('me@example.org', 'another@example.org'),
-        url=['http://www.example.org', 'https://example.org/~joe']
-    )
-
-    # Save the QR code image to a file
-    qr_image_path = "vcard_qrcode.png"  # Temporary file for visualization
-    vcard_data.save('my-vcard.svg', scale=4)
-
-    # Load the QR code image for use in the GUI
-    qr_img = Image.open(qr_image_path)
-    return qr_img
-
 def open_qr():
     selected_item = table.selection()
     
@@ -417,19 +392,20 @@ def open_qr():
         
         contact = cursor.fetchone()
 
-        print(contact[1], contact[2], contact[3], contact[4], contact[5], contact[6], contact[7], contact[8])
         if contact:
-            firstname = contact[1].replace(" ","")  
+            firstname = contact[1].strip()
 
+            # Prepare contact details
             qr_data = {
-                "name": f"{contact[2]};{firstname}",
-                "displayname": f"{firstname} {contact[2]}",
+                "name": f"{contact[2]};{firstname}",  # Last Name;First Name
+                "displayname": f"{firstname} {contact[2]}",  # First Last
                 "email": contact[3],
                 "phone": [f"0{phone.strip()}" if not phone.startswith("0") else phone.strip() for phone in contact[8].split(", ")],
                 "workplace": f"{contact[4]}, {contact[5]}, {contact[6]}",
                 "website": contact[7]
             }
 
+            # Generate the vCard QR code
             qrcode = segno.helpers.make_vcard(
                 name=qr_data["name"],
                 displayname=qr_data["displayname"],
@@ -439,13 +415,12 @@ def open_qr():
                 url=qr_data["website"]
             )
             
-            # Convert QR code to PIL Image in-memory
-            buffer = BytesIO()
-            qrcode.save(buffer, kind="png", scale=4)
-            buffer.seek(0)
-            qr_img = Image.open(buffer)
+            # Save the QR code as an image
+            qr_path = "temp_qr.png"
+            qrcode.save(qr_path, kind="png", scale=6)
 
-            # Create a modal to display the QR code
+            # Display the QR code in a modal window
+            qr_img = Image.open(qr_path)
             modal = Toplevel(root)
             modal.title(f"QR Code for {contact[1]} {contact[2]}")
             modal.geometry("350x350")
@@ -459,15 +434,14 @@ def open_qr():
             position_x = (screen_width // 2) - (window_width // 2)
             position_y = (screen_height // 2) - (window_height // 2)
             modal.geometry(f"{window_width}x{window_height}+{position_x}+{position_y}")
-
-            # Display the QR code in the modal
+            
             qr_img = qr_img.resize((300, 300), Image.Resampling.LANCZOS)
             qr_image = ImageTk.PhotoImage(qr_img)
             label = ttk.Label(modal, image=qr_image)
             label.image = qr_image
             label.pack(pady=20)
 
-            ttk.Button(modal, text="Close", command=modal.destroy).pack(pady=10)
+            ttk.Button(modal, text="Close", command=lambda: (modal.destroy(), os.remove(qr_path))).pack(pady=10)
         else:
             messagebox.showerror("Error", "No contact found with the given ID.")
 
